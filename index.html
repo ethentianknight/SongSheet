@@ -242,6 +242,26 @@
             </select>
         </div>
 
+        <div class="file-box">
+            <label for="transposeSelect">Key:</label>
+            <select id="transposeSelect">
+                <option value="">(no transpose)</option>
+                <option value="C">C</option>
+                <option value="Db">Db</option>
+                <option value="D">D</option>
+                <option value="Eb">Eb</option>
+                <option value="E">E</option>
+                <option value="F">F</option>
+                <option value="Gb">Gb</option>
+                <option value="G">G</option>
+                <option value="Ab">Ab</option>
+                <option value="A">A</option>
+                <option value="Bb">Bb</option>
+                <option value="B">B</option>
+            </select>
+        </div>
+
+
         <label class="file-box">
             <span>Upload text</span>
             <input id="fileInput" type="file" accept=".txt,text/plain" />
@@ -284,12 +304,22 @@
 
         // Mode logic
         let mode = 'guitar';
+        let transposeKey = '';
         let lastLoadedText = '';
+        let userHasSetTranspose = false;
 
         document.getElementById('modeSelect').addEventListener('change', (e) => {
             mode = e.target.value;
             renderDocument(lastLoadedText);
         });
+
+        document.getElementById('transposeSelect').addEventListener('change', (e) => {
+            transposeKey = e.target.value;
+            userHasSetTranspose = true;
+            renderDocument(lastLoadedText);
+        });
+
+
 
         function parseChunksFromLabeledText(raw) {
             const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
@@ -508,6 +538,55 @@
             if (meta.roadmap) container.appendChild(line3);
         }
 
+        function transposeChord(chord, fromKey, toKey) {
+            if (!fromKey || !toKey || chord.length === 0) return chord;
+
+            const NOTE_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const FLAT_TO_SHARP = {
+                'Db': 'C#', 'Eb': 'D#', 'Fb': 'E', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#', 'Cb': 'B',
+                'E#': 'F', 'B#': 'C'
+            };
+
+            // Normalize enharmonics to sharps
+            function normalize(note) {
+                return FLAT_TO_SHARP[note] || note;
+            }
+
+            // Extract base note
+            let base = chord[0].toUpperCase();
+            let accidental = '';
+            let rest = '';
+
+            if (chord[1] === 'b' || chord[1] === '#') {
+                accidental = chord[1];
+                rest = chord.slice(2);
+            } else {
+                rest = chord.slice(1);
+            }
+
+            const rootNote = normalize(base + accidental);
+            const rootIndex = NOTE_ORDER.indexOf(rootNote);
+            const fromIndex = NOTE_ORDER.indexOf(normalize(fromKey.toUpperCase()));
+            const toIndex = NOTE_ORDER.indexOf(normalize(toKey.toUpperCase()));
+
+            if (rootIndex === -1 || fromIndex === -1 || toIndex === -1) return chord;
+
+            const semitoneShift = (toIndex - fromIndex + 12) % 12;
+            const transposedIndex = (rootIndex + semitoneShift) % 12;
+            const transposedRoot = NOTE_ORDER[transposedIndex];
+
+            return transposedRoot + rest;
+        }
+
+        function transposeLine(line, fromKey, toKey) {
+            return line.replace(/\[([A-G][b#]?[^ \]]*)\]/g, (match, chord) => {
+                const transposed = transposeChord(chord, fromKey, toKey);
+                return `[${transposed}]`;
+            });
+        }
+
+
+
         function renderDocument(rawText) {
             lastLoadedText = rawText;
             clearOutput();
@@ -520,6 +599,25 @@
 
             const { metadata, chunks } = extractMetadataAndChunks(rawText);
             renderMetadataHeader(metadata);
+
+            const transposeSelect = document.getElementById('transposeSelect');
+
+            if (metadata.key) {
+                transposeSelect.disabled = false;
+
+                // If user hasn't picked a key OR selected key is empty, default to file's key
+                if (!userHasSetTranspose || transposeSelect.value === '') {
+                    transposeKey = metadata.key.trim();
+                    transposeSelect.value = transposeKey;
+                }
+            } else {
+                // No key in file — reset and disable
+                transposeKey = '';
+                transposeSelect.value = '';
+                transposeSelect.disabled = true;
+                userHasSetTranspose = false;
+            }
+
 
 
             // Normalize chunk map by name (case-insensitive)
@@ -553,7 +651,19 @@
                 section.appendChild(h2);
 
                 for (const line of lines) {
+                    // Apply transposition if needed
                     const slots = parseLineToSlots(line);
+
+                    // Transpose note in each slot, not the whole line
+                    if (metadata.key && transposeSelect.value && metadata.key.toLowerCase() !== transposeSelect.value.toLowerCase()) {
+                        for (const slot of slots) {
+                            if (slot.note) {
+                                slot.note = transposeChord(slot.note, metadata.key, transposeSelect.value);
+                            }
+                        }
+                    }
+
+
                     const table = renderSlotsAsTwoRowTable(slots);
                     const wrapper = document.createElement('div');
                     wrapper.className = 'line-wrapper';
@@ -573,6 +683,8 @@
             const reader = new FileReader();
             reader.onload = (ev) => {
                 const text = String(ev.target.result || '');
+                userHasSetTranspose = false;
+
                 renderDocument(text);
                 fileInput.value = '';
             };
