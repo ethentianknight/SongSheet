@@ -173,6 +173,12 @@
                 margin: 12mm;
             }
 
+            .chunk h2 {
+                color: black !important;
+                font-style: italic;
+            }
+
+
             body {
                 counter-reset: page 1;
             }
@@ -307,6 +313,7 @@
         let transposeKey = '';
         let lastLoadedText = '';
         let userHasSetTranspose = false;
+        let userPrefersFlats = true;
 
         document.getElementById('modeSelect').addEventListener('change', (e) => {
             mode = e.target.value;
@@ -538,45 +545,83 @@
             if (meta.roadmap) container.appendChild(line3);
         }
 
-        function transposeChord(chord, fromKey, toKey) {
+        function transposeChord(chord, fromKey, toKey, mode = 'guitar') {
             if (!fromKey || !toKey || chord.length === 0) return chord;
 
-            const NOTE_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const NOTE_ORDER_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
             const FLAT_TO_SHARP = {
                 'Db': 'C#', 'Eb': 'D#', 'Fb': 'E', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#', 'Cb': 'B',
                 'E#': 'F', 'B#': 'C'
             };
+            const SHARP_TO_FLAT = {
+                'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb'
+            };
 
-            // Normalize enharmonics to sharps
             function normalize(note) {
                 return FLAT_TO_SHARP[note] || note;
             }
 
-            // Extract base note
-            let base = chord[0].toUpperCase();
+            function extractRootPart(fullChord, useLeft) {
+                if (!fullChord.includes('/')) return fullChord;
+                const parts = fullChord.split('/');
+                return useLeft ? parts[0] : parts[1];
+            }
+
+            function getSemitone(note) {
+                return NOTE_ORDER_SHARP.indexOf(normalize(note));
+            }
+
+            // Choose target part of slash chord
+            // Choose target part of slash chord
+            let rawChord = chord;
+            let target = chord;
+
+            if (mode === 'guitar' && chord.includes('/')) {
+                target = chord.split('/')[0];
+            } else if (mode === 'bass' && chord.includes('/')) {
+                target = chord.split('/')[1];
+            }
+
+
+            let base = target[0].toUpperCase();
             let accidental = '';
             let rest = '';
 
-            if (chord[1] === 'b' || chord[1] === '#') {
-                accidental = chord[1];
-                rest = chord.slice(2);
+            if (target[1] === 'b' || target[1] === '#') {
+                accidental = target[1];
+                rest = target.slice(2);
             } else {
-                rest = chord.slice(1);
+                rest = target.slice(1);
             }
 
             const rootNote = normalize(base + accidental);
-            const rootIndex = NOTE_ORDER.indexOf(rootNote);
-            const fromIndex = NOTE_ORDER.indexOf(normalize(fromKey.toUpperCase()));
-            const toIndex = NOTE_ORDER.indexOf(normalize(toKey.toUpperCase()));
+            const rootIndex = getSemitone(rootNote);
+            const fromIndex = getSemitone(normalize(fromKey));
+            const toIndex = getSemitone(normalize(toKey));
 
             if (rootIndex === -1 || fromIndex === -1 || toIndex === -1) return chord;
 
             const semitoneShift = (toIndex - fromIndex + 12) % 12;
             const transposedIndex = (rootIndex + semitoneShift) % 12;
-            const transposedRoot = NOTE_ORDER[transposedIndex];
+            let transposedRoot = NOTE_ORDER_SHARP[transposedIndex];
+
+            // ✅ If user's selected key is flat, convert output to flats where applicable
+            // ✅ If user's selected key is flat, convert output to flats where applicable
+            const preferFlats = toKey.includes('b');
+            if (userPrefersFlats && SHARP_TO_FLAT[transposedRoot]) {
+                transposedRoot = SHARP_TO_FLAT[transposedRoot];
+            }
+
+            // ✅ Remove 'm' from minor chords in bass mode if no slash
+            if (mode === 'bass' && !chord.includes('/') && rest.startsWith('m') && !rest.startsWith('maj')) {
+                rest = rest.slice(1); // remove only the 'm'
+            }
 
             return transposedRoot + rest;
+
         }
+
+
 
         function transposeLine(line, fromKey, toKey) {
             return line.replace(/\[([A-G][b#]?[^ \]]*)\]/g, (match, chord) => {
@@ -655,13 +700,14 @@
                     const slots = parseLineToSlots(line);
 
                     // Transpose note in each slot, not the whole line
-                    if (metadata.key && transposeSelect.value && metadata.key.toLowerCase() !== transposeSelect.value.toLowerCase()) {
+                    if (metadata.key && (transposeSelect.value || mode === 'bass')) {
                         for (const slot of slots) {
                             if (slot.note) {
-                                slot.note = transposeChord(slot.note, metadata.key, transposeSelect.value);
+                                slot.note = transposeChord(slot.note, metadata.key, transposeSelect.value, mode);
                             }
                         }
                     }
+
 
 
                     const table = renderSlotsAsTwoRowTable(slots);
