@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Guitar Sheet Builder — v1</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --fg: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #22c55e;
+            --card: #111827;
+            --br: 14px;
+            --scale: 1;
+        }
+
+        @media screen {
+
+            html,
+            body {
+                height: 100%;
+            }
+        }
+
+
+        body {
+            margin: 0;
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
+                Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.5;
+        }
+
+        header#toolbar {
+            position: relative;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(180deg, #0b1220, #0a0f1c);
+            border-bottom: 1px solid #1f2937;
+        }
+
+        .brand {
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .subtle {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .spacer {
+            flex: 1;
+        }
+
+        .file-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #0b1322;
+            border: 1px solid #243046;
+            padding: 8px 10px;
+            border-radius: var(--br);
+        }
+
+        input[type="file"] {
+            color: var(--fg);
+        }
+
+        button {
+            background: #1e293b;
+            color: var(--fg);
+            border: 1px solid #334155;
+            padding: 2px 8px;
+            font-size: 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        main#app {
+            max-width: 1100px;
+            margin: 24px auto;
+            padding: 0 16px 0;
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin: 4px 0 18px;
+        }
+
+        .chunk {
+            margin: 18px 0;
+            padding: 0;
+            border: none;
+            background: none;
+        }
+
+        .chunk h2 {
+            margin: 0 0 10px;
+            font-size: calc(1.05rem * var(--scale));
+            color: #cbd5e1;
+        }
+
+        /* Each line is wrapped for layout scaling */
+        .line-wrapper {
+            width: 100%;
+        }
+
+        .line-wrapper>.line-table {
+            zoom: var(--scale);
+        }
+
+        .line-table {
+            border-collapse: separate;
+            border-spacing: 0 0;
+            table-layout: auto;
+            margin: 2px 0 6px;
+        }
+
+        .line-table td {
+            padding: 0 .4ch;
+            vertical-align: bottom;
+        }
+
+        .line-table td>span {
+            white-space: nowrap;
+            display: inline-block;
+        }
+
+        .note-row td {
+            height: 1.4em;
+            color: #bef264;
+        }
+
+        .word-row td {
+            height: 1.6em;
+        }
+
+        .line-table+.line-table {
+            margin-top: 4px;
+        }
+
+        .chunk+.chunk {
+            margin-top: 22px;
+        }
+
+
+        @media print {
+            @page {
+                margin: 12mm;
+            }
+
+            header#toolbar {
+                display: none !important;
+            }
+
+            body {
+                background: white;
+                color: black;
+            }
+
+            .chunk {
+                break-inside: avoid;
+                page-break-after: avoid;
+            }
+
+            .note-row td {
+                height: 1.4em;
+                color: #facc15;
+                /* Tailwind's yellow-400 / yellow-500 area */
+                font-weight: normal;
+            }
+
+            @media print {
+                .note-row td {
+                    color: #000;
+                    font-weight: bold;
+                }
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header id="toolbar" role="banner">
+        <div class="brand">Guitar Sheet Builder</div>
+        <div class="subtle">v1 — upload a .txt file to render</div>
+        <div class="spacer"></div>
+
+        <div class="file-box">
+            <button id="zoomOutBtn" type="button">–</button>
+            <span style="min-width: 2ch; text-align: center;" id="zoomDisplay">100%</span>
+            <button id="zoomInBtn" type="button">+</button>
+        </div>
+
+        <label class="file-box">
+            <span>Upload text</span>
+            <input id="fileInput" type="file" accept=".txt,text/plain" />
+        </label>
+    </header>
+
+    <main id="app" role="main">
+        <div id="placeholder" class="hint">No file loaded yet. Upload a text file using the control above.</div>
+        <div id="output"></div>
+    </main>
+
+    <script>
+        // Font zoom controls
+        let scale = 1;
+        const minScale = 0.5;
+        const maxScale = 2;
+        const scaleStep = 0.1;
+
+        const updateScale = () => {
+            document.documentElement.style.setProperty('--scale', scale.toFixed(2));
+            document.getElementById('zoomDisplay').textContent = Math.round(scale * 100) + '%';
+        };
+
+        document.getElementById('zoomInBtn').addEventListener('click', () => {
+            if (scale < maxScale) {
+                scale += scaleStep;
+                updateScale();
+            }
+        });
+
+        document.getElementById('zoomOutBtn').addEventListener('click', () => {
+            if (scale > minScale) {
+                scale -= scaleStep;
+                updateScale();
+            }
+        });
+
+        updateScale();
+
+        // File parsing
+        function parseChunksFromLabeledText(raw) {
+            const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+            if (!text) return [];
+
+            const lines = text.split('\n');
+            const chunks = [];
+            let currentChunk = { name: null, lines: [] };
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                const isChunkLabel = /^\[\![^\]]+\]$/.test(trimmed);
+
+                if (isChunkLabel) {
+                    if (currentChunk.lines.length > 0 || currentChunk.name !== null) {
+                        chunks.push(currentChunk);
+                    }
+                    currentChunk = {
+                        name: trimmed.slice(2, -1).trim(),
+                        lines: []
+                    };
+                } else {
+                    currentChunk.lines.push(line);
+                }
+            }
+
+            if (currentChunk.lines.length > 0 || currentChunk.name !== null) {
+                chunks.push(currentChunk);
+            }
+
+            if (chunks.length === 0) {
+                return [{ name: 'chunk 1', lines }];
+            }
+
+            let fallbackCount = 1;
+            for (const chunk of chunks) {
+                if (!chunk.name) {
+                    chunk.name = `Chunk ${fallbackCount++}`;
+                }
+            }
+
+            return chunks;
+        }
+
+        function parseLineToSlots(line) {
+            const slots = [];
+            let i = 0;
+            let pendingNote = null;
+            const len = line.length;
+
+            function isSpace(ch) { return ch === ' ' || ch === '\t'; }
+
+            while (i < len) {
+                const ch = line[i];
+                if (ch === '[') {
+                    let j = i + 1;
+                    while (j < len && line[j] !== ']') j++;
+                    const noteText = line.slice(i + 1, j).trim();
+                    const nextChar = (j + 1 < len) ? line[j + 1] : '';
+                    if (nextChar && !isSpace(nextChar)) {
+                        pendingNote = noteText;
+                        i = j + 1;
+                        continue;
+                    } else {
+                        slots.push({ note: noteText, word: '' });
+                        i = j + 1;
+                        continue;
+                    }
+                }
+                if (isSpace(ch)) { i++; continue; }
+                let start = i;
+                while (i < len && !isSpace(line[i]) && line[i] !== '[') i++;
+                const word = line.slice(start, i);
+                const slot = { note: pendingNote || '', word };
+                pendingNote = null;
+                slots.push(slot);
+            }
+
+            if (pendingNote && pendingNote.length) {
+                slots.push({ note: pendingNote, word: '' });
+            }
+
+            return slots;
+        }
+
+        function renderSlotsAsTwoRowTable(slots) {
+            const table = document.createElement('table');
+            table.className = 'line-table';
+            const tbody = document.createElement('tbody');
+            const trNote = document.createElement('tr'); trNote.className = 'note-row';
+            const trWord = document.createElement('tr'); trWord.className = 'word-row';
+
+            for (const slot of slots) {
+                const tdN = document.createElement('td');
+                const spanN = document.createElement('span'); spanN.textContent = slot.note || '';
+                tdN.appendChild(spanN);
+                trNote.appendChild(tdN);
+
+                const tdW = document.createElement('td');
+                const spanW = document.createElement('span'); spanW.textContent = slot.word || '';
+                tdW.appendChild(spanW);
+                trWord.appendChild(tdW);
+            }
+            tbody.appendChild(trNote);
+            tbody.appendChild(trWord);
+            table.appendChild(tbody);
+            return table;
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        function renderDocument(rawText) {
+            clearOutput();
+            const out = document.getElementById('output');
+            const placeholder = document.getElementById('placeholder');
+            if (placeholder) placeholder.remove();
+
+            const parsedChunks = parseChunksFromLabeledText(rawText);
+            for (const { name, lines } of parsedChunks) {
+                const section = document.createElement('section');
+                section.className = 'chunk';
+
+                const h2 = document.createElement('h2');
+                h2.textContent = name;
+                section.appendChild(h2);
+
+                for (const line of lines) {
+                    const slots = parseLineToSlots(line);
+                    const table = renderSlotsAsTwoRowTable(slots);
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'line-wrapper';
+                    wrapper.appendChild(table);
+                    section.appendChild(wrapper);
+                }
+
+                out.appendChild(section);
+            }
+        }
+
+        const fileInput = document.getElementById('fileInput');
+        fileInput.addEventListener('change', (e) => {
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const text = String(ev.target.result || '');
+                renderDocument(text);
+                fileInput.value = '';
+            };
+            reader.readAsText(f);
+        });
+    </script>
+</body>
+
+</html>
