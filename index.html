@@ -24,11 +24,9 @@
             }
         }
 
-
         body {
             margin: 0;
-            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
-                Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
             background: var(--bg);
             color: var(--fg);
             line-height: 1.5;
@@ -72,6 +70,15 @@
             color: var(--fg);
         }
 
+        select {
+            background: #1e293b;
+            color: var(--fg);
+            border: 1px solid #334155;
+            padding: 2px 6px;
+            font-size: 1rem;
+            border-radius: 6px;
+        }
+
         button {
             background: #1e293b;
             color: var(--fg);
@@ -94,6 +101,18 @@
             margin: 4px 0 18px;
         }
 
+        .meta-header {
+            font-size: 1rem;
+            line-height: 1.4;
+            margin-bottom: 20px;
+            padding: 0 8px;
+        }
+
+
+        .meta-header p {
+            margin: 4px 0;
+        }
+
         .chunk {
             margin: 18px 0;
             padding: 0;
@@ -107,7 +126,6 @@
             color: #cbd5e1;
         }
 
-        /* Each line is wrapped for layout scaling */
         .line-wrapper {
             width: 100%;
         }
@@ -135,7 +153,7 @@
 
         .note-row td {
             height: 1.4em;
-            color: #bef264;
+            color: #facc15;
         }
 
         .word-row td {
@@ -150,14 +168,38 @@
             margin-top: 22px;
         }
 
-
         @media print {
             @page {
                 margin: 12mm;
             }
 
+            body {
+                counter-reset: page 1;
+            }
+
+            .page-number-tag::after {
+                content: counter(page);
+            }
+
             header#toolbar {
                 display: none !important;
+            }
+
+            .meta-header {
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 100%;
+                padding: 0 12mm;
+                background: white;
+                color: black;
+                font-size: 1rem;
+                text-align: right;
+                page-break-before: always;
+            }
+
+            .meta-header p {
+                margin: 2mm 0;
             }
 
             body {
@@ -168,20 +210,12 @@
             .chunk {
                 break-inside: avoid;
                 page-break-after: avoid;
+                margin-top: 25mm;
             }
 
             .note-row td {
-                height: 1.4em;
-                color: #facc15;
-                /* Tailwind's yellow-400 / yellow-500 area */
-                font-weight: normal;
-            }
-
-            @media print {
-                .note-row td {
-                    color: #000;
-                    font-weight: bold;
-                }
+                color: #000;
+                font-weight: bold;
             }
         }
     </style>
@@ -199,6 +233,15 @@
             <button id="zoomInBtn" type="button">+</button>
         </div>
 
+        <div class="file-box">
+            <label for="modeSelect">Mode:</label>
+            <select id="modeSelect">
+                <option value="guitar" selected>Guitar</option>
+                <option value="words">Words Only</option>
+                <option value="bass">Bass</option>
+            </select>
+        </div>
+
         <label class="file-box">
             <span>Upload text</span>
             <input id="fileInput" type="file" accept=".txt,text/plain" />
@@ -207,15 +250,16 @@
 
     <main id="app" role="main">
         <div id="placeholder" class="hint">No file loaded yet. Upload a text file using the control above.</div>
+        <div id="metaHeader" class="meta-header"></div>
         <div id="output"></div>
     </main>
 
     <script>
-        // Font zoom controls
         let scale = 1;
         const minScale = 0.5;
         const maxScale = 2;
         const scaleStep = 0.1;
+        const KNOWN_METADATA_KEYS = ["title", "author", "ccli", "key", "bpm", "timing", "roadmap"];
 
         const updateScale = () => {
             document.documentElement.style.setProperty('--scale', scale.toFixed(2));
@@ -238,7 +282,15 @@
 
         updateScale();
 
-        // File parsing
+        // Mode logic
+        let mode = 'guitar';
+        let lastLoadedText = '';
+
+        document.getElementById('modeSelect').addEventListener('change', (e) => {
+            mode = e.target.value;
+            renderDocument(lastLoadedText);
+        });
+
         function parseChunksFromLabeledText(raw) {
             const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
             if (!text) return [];
@@ -268,8 +320,9 @@
                 chunks.push(currentChunk);
             }
 
-            if (chunks.length === 0) {
-                return [{ name: 'chunk 1', lines }];
+            const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+            if (chunks.length === 0 && nonEmptyLines.length > 0) {
+                return [{ name: 'chunk 1', lines: nonEmptyLines }];
             }
 
             let fallbackCount = 1;
@@ -327,21 +380,25 @@
             const table = document.createElement('table');
             table.className = 'line-table';
             const tbody = document.createElement('tbody');
-            const trNote = document.createElement('tr'); trNote.className = 'note-row';
+
+            if (mode !== 'words') {
+                const trNote = document.createElement('tr'); trNote.className = 'note-row';
+                for (const slot of slots) {
+                    const tdN = document.createElement('td');
+                    const spanN = document.createElement('span'); spanN.textContent = slot.note || '';
+                    tdN.appendChild(spanN);
+                    trNote.appendChild(tdN);
+                }
+                tbody.appendChild(trNote);
+            }
+
             const trWord = document.createElement('tr'); trWord.className = 'word-row';
-
             for (const slot of slots) {
-                const tdN = document.createElement('td');
-                const spanN = document.createElement('span'); spanN.textContent = slot.note || '';
-                tdN.appendChild(spanN);
-                trNote.appendChild(tdN);
-
                 const tdW = document.createElement('td');
                 const spanW = document.createElement('span'); spanW.textContent = slot.word || '';
                 tdW.appendChild(spanW);
                 trWord.appendChild(tdW);
             }
-            tbody.appendChild(trNote);
             tbody.appendChild(trWord);
             table.appendChild(tbody);
             return table;
@@ -351,14 +408,143 @@
             document.getElementById('output').innerHTML = '';
         }
 
+        function extractMetadataAndChunks(raw) {
+            const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+            if (!text) return { metadata: {}, chunks: [] };
+
+
+            const lines = text.split('\n');
+            const chunks = [];
+            let metadata = {};
+            let currentChunk = { name: null, lines: [] };
+            let i = 0;
+            let isMetadataPhase = true;
+
+
+            while (i < lines.length) {
+                const line = lines[i].trim();
+                const isLabel = /^\[\![^\]]+\]$/.test(line);
+
+
+                if (isLabel) {
+                    const key = line.slice(2, -1).trim().toLowerCase();
+                    const nextLine = lines[i + 1] || '';
+
+
+                    if (isMetadataPhase && KNOWN_METADATA_KEYS.includes(key)) {
+                        metadata[key] = nextLine.trim();
+                        i += 2;
+                        continue;
+                    } else {
+                        isMetadataPhase = false;
+                        if (currentChunk.lines.length > 0 || currentChunk.name !== null) {
+                            chunks.push(currentChunk);
+                        }
+                        currentChunk = {
+                            name: key,
+                            lines: []
+                        };
+                        i++;
+                        continue;
+                    }
+                } else {
+                    isMetadataPhase = false;
+                    if (lines[i].trim().length > 0) {
+                        currentChunk.lines.push(lines[i]);
+                    }
+
+                    i++;
+                }
+            }
+
+
+            if (currentChunk.lines.length > 0 || currentChunk.name !== null) {
+                chunks.push(currentChunk);
+            }
+
+
+            let fallbackCount = 1;
+            for (const chunk of chunks) {
+                if (!chunk.name) {
+                    chunk.name = `Chunk ${fallbackCount++}`;
+                }
+            }
+
+
+            return { metadata, chunks };
+        }
+
+        function renderMetadataHeader(meta) {
+            const container = document.getElementById('metaHeader');
+            container.innerHTML = '';
+            if (!meta || Object.keys(meta).length === 0) return;
+
+
+            const line1 = document.createElement('p');
+            const title = meta.title || '';
+            const author = meta.author || '';
+            const ccli = meta.ccli ? `(CCLI # ${meta.ccli})` : '';
+            const baseLine = [title, author].filter(Boolean).join(' - ') + (ccli ? ' ' + ccli : '');
+            line1.textContent = baseLine + ' — Page ';
+            line1.classList.add('page-number-tag');
+
+
+
+            const line2 = document.createElement('p');
+            const key = meta.key ? `Key - ${meta.key}` : '';
+            const bpm = meta.bpm ? `${meta.bpm} BPM` : '';
+            const timing = meta.timing || '';
+            line2.textContent = [key, bpm, timing].filter(Boolean).join(', ');
+
+
+            const line3 = document.createElement('p');
+            if (meta.roadmap) {
+                line3.textContent = `Roadmap: ${meta.roadmap}`;
+            }
+
+
+            container.appendChild(line1);
+            container.appendChild(line2);
+            if (meta.roadmap) container.appendChild(line3);
+        }
+
         function renderDocument(rawText) {
+            lastLoadedText = rawText;
             clearOutput();
+
+
             const out = document.getElementById('output');
             const placeholder = document.getElementById('placeholder');
             if (placeholder) placeholder.remove();
 
-            const parsedChunks = parseChunksFromLabeledText(rawText);
-            for (const { name, lines } of parsedChunks) {
+
+            const { metadata, chunks } = extractMetadataAndChunks(rawText);
+            renderMetadataHeader(metadata);
+
+
+            // Normalize chunk map by name (case-insensitive)
+            const chunkMap = {};
+            for (const chunk of chunks) {
+                chunkMap[chunk.name.toLowerCase()] = chunk;
+            }
+
+            let displayOrder = [];
+
+            // Use roadmap if available
+            if (metadata.roadmap) {
+                const parts = metadata.roadmap.trim().split(/\s+/);
+                for (const part of parts) {
+                    const key = part.toLowerCase();
+                    if (chunkMap[key]) {
+                        displayOrder.push(chunkMap[key]);
+                    }
+                }
+            } else {
+                displayOrder = chunks;
+            }
+
+            // Render chunks in displayOrder
+            for (const { name, lines } of displayOrder) {
                 const section = document.createElement('section');
                 section.className = 'chunk';
 
@@ -377,6 +563,7 @@
 
                 out.appendChild(section);
             }
+
         }
 
         const fileInput = document.getElementById('fileInput');
