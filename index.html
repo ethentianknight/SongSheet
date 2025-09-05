@@ -89,11 +89,12 @@
             cursor: pointer;
         }
 
-        main#app {
-            max-width: 1100px;
-            margin: 24px auto;
-            padding: 0 16px 0;
-        }
+main#app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
 
         .hint {
             color: var(--muted);
@@ -173,6 +174,7 @@
                 margin: 12mm;
             }
 
+
             .chunk h2 {
                 color: black !important;
                 font-style: italic;
@@ -192,17 +194,14 @@
             }
 
             .meta-header {
-                position: fixed;
-                top: 0;
-                right: 0;
-                width: 100%;
-                padding: 0 12mm;
+                margin-bottom: 0;
                 background: white;
                 color: black;
                 font-size: 1rem;
                 text-align: right;
-                page-break-before: always;
+                page-break-after: avoid;
             }
+
 
             .meta-header p {
                 margin: 2mm 0;
@@ -214,9 +213,10 @@
             }
 
             .chunk {
+                page-break-inside: avoid;
                 break-inside: avoid;
-                page-break-after: avoid;
-                margin-top: 25mm;
+                page-break-after: auto;
+                display: block;
             }
 
             .note-row td {
@@ -232,6 +232,8 @@
         <div class="brand">Guitar Sheet Builder</div>
         <div class="subtle">v1 — upload a .txt file to render</div>
         <div class="spacer"></div>
+
+
 
         <div class="file-box">
             <button id="zoomOutBtn" type="button">–</button>
@@ -274,6 +276,8 @@
         </label>
     </header>
 
+
+
     <main id="app" role="main">
         <div id="placeholder" class="hint">No file loaded yet. Upload a text file using the control above.</div>
         <div id="metaHeader" class="meta-header"></div>
@@ -286,6 +290,30 @@
         const maxScale = 2;
         const scaleStep = 0.1;
         const KNOWN_METADATA_KEYS = ["title", "author", "ccli", "key", "bpm", "timing", "roadmap"];
+
+        function getDisplayName(raw) {
+            const lower = raw.toLowerCase();
+
+            const labelMap = {
+                'v': 'Verse',
+                'c': 'Chorus',
+                'b': 'Bridge',
+                'pc': 'Pre-Chorus'
+            };
+
+            const match = lower.match(/^([a-z]+)(\d*)$/);
+
+            if (match) {
+                const prefix = match[1];
+                const number = match[2];
+                const label = labelMap[prefix] || raw;
+                return number ? `${label} ${number}` : label;
+            }
+
+            // fallback: Title Case the input
+            return raw.replace(/(^|\s)\S/g, c => c.toUpperCase());
+        }
+
 
         const updateScale = () => {
             document.documentElement.style.setProperty('--scale', scale.toFixed(2));
@@ -522,8 +550,8 @@
             const author = meta.author || '';
             const ccli = meta.ccli ? `(CCLI # ${meta.ccli})` : '';
             const baseLine = [title, author].filter(Boolean).join(' - ') + (ccli ? ' ' + ccli : '');
-            line1.textContent = baseLine + ' — Page ';
-            line1.classList.add('page-number-tag');
+            line1.textContent = baseLine;// + ' — Page ';
+            // line1.classList.add('page-number-tag');
 
 
 
@@ -692,7 +720,7 @@
                 section.className = 'chunk';
 
                 const h2 = document.createElement('h2');
-                h2.textContent = name;
+                h2.textContent = getDisplayName(name);
                 section.appendChild(h2);
 
                 for (const line of lines) {
